@@ -9,10 +9,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 @contextmanager
 def _without_env_keys(*keys: str):
-    """Temporarily remove API key env vars so langchain-google-genai can set them.
+    """Temporarily remove env vars that confuse the Google Gen AI SDK.
 
-    When GOOGLE_API_KEY is already in the environment, the Vertex branch of
-    ChatGoogleGenerativeAI skips the express-key path and falls back to ADC.
+    Vertex express keys (AQ.*) must not share the environment with
+    GOOGLE_CLOUD_LOCATION / GOOGLE_CLOUD_PROJECT — the SDK treats that as
+    ADC mode and silently drops the API key.
     """
     saved = {k: os.environ.pop(k) for k in keys if k in os.environ}
     try:
@@ -22,7 +23,7 @@ def _without_env_keys(*keys: str):
 
 
 def build_gemini_model() -> ChatGoogleGenerativeAI:
-    """Build ChatGoogleGenerativeAI using an API key or Vertex ADC."""
+    """Build ChatGoogleGenerativeAI using an express API key or Vertex ADC."""
     model = os.getenv("MODEL", "gemini-3.5-flash")
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in (
@@ -30,24 +31,29 @@ def build_gemini_model() -> ChatGoogleGenerativeAI:
         "true",
     )
 
+    if api_key and use_vertex:
+        # Vertex express mode — API key only. Do NOT pass project/location.
+        with _without_env_keys(
+            "GOOGLE_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_CLOUD_PROJECT",
+            "GOOGLE_CLOUD_LOCATION",
+        ):
+            return ChatGoogleGenerativeAI(
+                model=model,
+                google_api_key=api_key,
+                vertexai=True,
+            )
+
     if api_key:
-        kwargs: dict = {"model": model, "google_api_key": api_key}
-        if use_vertex:
-            kwargs["vertexai"] = True
-            project = os.getenv("GOOGLE_CLOUD_PROJECT")
-            if project:
-                kwargs["project"] = project
-            kwargs["location"] = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-            with _without_env_keys("GOOGLE_API_KEY", "GEMINI_API_KEY"):
-                return ChatGoogleGenerativeAI(**kwargs)
-        return ChatGoogleGenerativeAI(**kwargs)
+        return ChatGoogleGenerativeAI(model=model, google_api_key=api_key)
 
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     if not project:
         raise ValueError(
             "No GEMINI_API_KEY / GOOGLE_API_KEY and no GOOGLE_CLOUD_PROJECT. "
-            "Either set an API key or configure Vertex ADC "
-            "(scripts/setup-adc.ps1)."
+            "Either set a Vertex express API key (leave GOOGLE_CLOUD_LOCATION "
+            "unset) or configure ADC (scripts/setup-adc.ps1)."
         )
 
     return ChatGoogleGenerativeAI(

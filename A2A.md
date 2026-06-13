@@ -23,7 +23,9 @@ copy .env.example .env
 # GOOGLE_GENAI_USE_VERTEXAI=true
 ```
 
-If your org blocks API keys, use ADC instead — see `scripts/setup-adc.ps1`.
+**Vertex express keys (`AQ.*`):** leave `GOOGLE_CLOUD_LOCATION` **unset**. If it is set, the Google SDK ignores your key and returns HTTP 401.
+
+If your org blocks API keys, use ADC instead — see `scripts/setup-adc.ps1` (then set `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION`).
 
 ### 2. Run A2A agents (requires Docker)
 
